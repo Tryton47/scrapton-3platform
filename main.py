@@ -1,6 +1,6 @@
 """
 Main entry-point CLI for the Multi-Platform Social Media Scraper.
-Supports Instagram, TikTok, and X with interactive logins and multi-format exports.
+Supports Instagram, TikTok, and X (Twitter) with interactive logins and multi-format exports.
 """
 import argparse
 import asyncio
@@ -17,6 +17,8 @@ from scrapers.instagram import InstagramScraper
 from scrapers.instagram_auth import InstagramAuth
 from scrapers.tiktok import TikTokScraper
 from scrapers.tiktok_auth import TikTokAuth
+from scrapers.twitter import TwitterScraper
+from scrapers.twitter_auth import TwitterAuth
 
 console = Console()
 
@@ -39,12 +41,15 @@ def show_status():
 
     ig_auth = InstagramAuth()
     tt_auth = TikTokAuth()
+    tw_auth = TwitterAuth()
+
     table.add_row("Output Directory", str(settings.output_dir))
     table.add_row("Sessions Directory", str(settings.sessions_dir))
     table.add_row("Default Format", settings.default_output_format.upper())
     table.add_row("Headless Mode", str(settings.headless))
     table.add_row("Instagram Session Saved", "Yes" if ig_auth.has_saved_session() else "No (Run --login-instagram)")
     table.add_row("TikTok Session Saved", "Yes" if tt_auth.has_saved_session() else "No (Run --login-tiktok)")
+    table.add_row("X (Twitter) Session Saved", "Yes" if tw_auth.has_saved_session() else "No (Run --login-twitter)")
     table.add_row("Supported Platforms", ", ".join(p.value for p in Platform))
 
     console.print(table)
@@ -82,16 +87,7 @@ async def run_instagram_scraper(username: str, limit: int, export_format: str):
     console.print(table)
 
     base_name = f"instagram_{username}"
-    if export_format == "json":
-        path = storage.save_to_json(posts, base_name)
-    elif export_format == "csv":
-        path = storage.save_to_csv(posts, base_name)
-    elif export_format == "sqlite":
-        path = storage.save_to_sqlite(posts)
-    else:
-        path = storage.save_to_json(posts, base_name)
-
-    console.print(f"[bold green]Data exported successfully to:[/bold green] {path}")
+    save_scraped_items(storage, posts, base_name, export_format)
 
 async def run_tiktok_scraper(username: str, limit: int, export_format: str):
     """Execute TikTok scrape flow."""
@@ -127,6 +123,46 @@ async def run_tiktok_scraper(username: str, limit: int, export_format: str):
     console.print(table)
 
     base_name = f"tiktok_{cleaned_username}"
+    save_scraped_items(storage, posts, base_name, export_format)
+
+async def run_twitter_scraper(username: str, limit: int, export_format: str):
+    """Execute X / Twitter scrape flow."""
+    cleaned_username = username.lstrip("@")
+    scraper = TwitterScraper()
+    storage = StorageManager()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(description=f"Fetching X @{cleaned_username} profile info...", total=None)
+        profile = await scraper.get_profile(cleaned_username)
+
+        progress.update(task, description=f"Collecting tweets from @{cleaned_username}...")
+        posts = []
+        async for post in scraper.get_user_posts(cleaned_username, limit=limit):
+            posts.append(post)
+
+    table = Table(title=f"Results for X (Twitter): @{cleaned_username}")
+    table.add_column("Name", style="cyan")
+    table.add_column("Followers", style="green")
+    table.add_column("Following", style="magenta")
+    table.add_column("Tweets Scraped", style="yellow")
+
+    table.add_row(
+        profile.display_name or "-",
+        str(profile.followers_count),
+        str(profile.following_count),
+        str(len(posts))
+    )
+    console.print(table)
+
+    base_name = f"twitter_{cleaned_username}"
+    save_scraped_items(storage, posts, base_name, export_format)
+
+def save_scraped_items(storage: StorageManager, posts: list, base_name: str, export_format: str):
+    """Save posts to target format."""
     if export_format == "json":
         path = storage.save_to_json(posts, base_name)
     elif export_format == "csv":
@@ -143,6 +179,7 @@ def main():
     parser.add_argument("--status", action="store_true", help="Display configuration and scraper status")
     parser.add_argument("--login-instagram", action="store_true", help="Open browser to login and save Instagram cookies")
     parser.add_argument("--login-tiktok", action="store_true", help="Open browser to login and save TikTok cookies")
+    parser.add_argument("--login-twitter", action="store_true", help="Open browser to login and save X (Twitter) cookies")
     parser.add_argument("--platform", choices=["instagram", "tiktok", "twitter"], help="Target platform")
     parser.add_argument("--username", type=str, help="Target username to scrape")
     parser.add_argument("--limit", type=int, default=12, help="Number of items to fetch")
@@ -153,18 +190,20 @@ def main():
     display_welcome_banner()
 
     if args.login_instagram:
-        auth = InstagramAuth()
-        asyncio.run(auth.login_interactive())
+        asyncio.run(InstagramAuth().login_interactive())
         return
 
     if args.login_tiktok:
-        auth = TikTokAuth()
-        asyncio.run(auth.login_interactive())
+        asyncio.run(TikTokAuth().login_interactive())
+        return
+
+    if args.login_twitter:
+        asyncio.run(TwitterAuth().login_interactive())
         return
 
     if args.status or len(sys.argv) == 1:
         show_status()
-        console.print("\n[yellow]Tip: Run with --platform tiktok --username <target> to scrape videos.[/yellow]")
+        console.print("\n[yellow]Tip: Run with --platform <instagram|tiktok|twitter> --username <target> to scrape.[/yellow]")
         return
 
     if not args.username:
@@ -175,8 +214,8 @@ def main():
         asyncio.run(run_instagram_scraper(args.username, args.limit, args.format))
     elif args.platform == "tiktok":
         asyncio.run(run_tiktok_scraper(args.username, args.limit, args.format))
-    else:
-        console.print(f"[yellow]Platform {args.platform} scraper is scheduled for upcoming modules![/yellow]")
+    elif args.platform == "twitter":
+        asyncio.run(run_twitter_scraper(args.username, args.limit, args.format))
 
 if __name__ == "__main__":
     main()
