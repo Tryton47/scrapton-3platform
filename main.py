@@ -15,6 +15,8 @@ from core.models import Platform
 from core.storage import StorageManager
 from scrapers.instagram import InstagramScraper
 from scrapers.instagram_auth import InstagramAuth
+from scrapers.tiktok import TikTokScraper
+from scrapers.tiktok_auth import TikTokAuth
 
 console = Console()
 
@@ -36,11 +38,13 @@ def show_status():
     table.add_column("Value", style="green")
 
     ig_auth = InstagramAuth()
+    tt_auth = TikTokAuth()
     table.add_row("Output Directory", str(settings.output_dir))
     table.add_row("Sessions Directory", str(settings.sessions_dir))
     table.add_row("Default Format", settings.default_output_format.upper())
     table.add_row("Headless Mode", str(settings.headless))
     table.add_row("Instagram Session Saved", "Yes" if ig_auth.has_saved_session() else "No (Run --login-instagram)")
+    table.add_row("TikTok Session Saved", "Yes" if tt_auth.has_saved_session() else "No (Run --login-tiktok)")
     table.add_row("Supported Platforms", ", ".join(p.value for p in Platform))
 
     console.print(table)
@@ -63,7 +67,6 @@ async def run_instagram_scraper(username: str, limit: int, export_format: str):
         async for post in scraper.get_user_posts(username, limit=limit):
             posts.append(post)
 
-    # Print Summary Table
     table = Table(title=f"Results for Instagram: @{username}")
     table.add_column("Display Name", style="cyan")
     table.add_column("Followers", style="green")
@@ -78,8 +81,52 @@ async def run_instagram_scraper(username: str, limit: int, export_format: str):
     )
     console.print(table)
 
-    # Save outputs
     base_name = f"instagram_{username}"
+    if export_format == "json":
+        path = storage.save_to_json(posts, base_name)
+    elif export_format == "csv":
+        path = storage.save_to_csv(posts, base_name)
+    elif export_format == "sqlite":
+        path = storage.save_to_sqlite(posts)
+    else:
+        path = storage.save_to_json(posts, base_name)
+
+    console.print(f"[bold green]Data exported successfully to:[/bold green] {path}")
+
+async def run_tiktok_scraper(username: str, limit: int, export_format: str):
+    """Execute TikTok scrape flow."""
+    cleaned_username = username.lstrip("@")
+    scraper = TikTokScraper()
+    storage = StorageManager()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(description=f"Fetching TikTok @{cleaned_username} profile info...", total=None)
+        profile = await scraper.get_profile(cleaned_username)
+
+        progress.update(task, description=f"Collecting TikTok videos from @{cleaned_username}...")
+        posts = []
+        async for post in scraper.get_user_posts(cleaned_username, limit=limit):
+            posts.append(post)
+
+    table = Table(title=f"Results for TikTok: @{cleaned_username}")
+    table.add_column("Nickname", style="cyan")
+    table.add_column("Followers", style="green")
+    table.add_column("Following", style="magenta")
+    table.add_column("Videos Scraped", style="yellow")
+
+    table.add_row(
+        profile.display_name or "-",
+        str(profile.followers_count),
+        str(profile.following_count),
+        str(len(posts))
+    )
+    console.print(table)
+
+    base_name = f"tiktok_{cleaned_username}"
     if export_format == "json":
         path = storage.save_to_json(posts, base_name)
     elif export_format == "csv":
@@ -95,9 +142,10 @@ def main():
     parser = argparse.ArgumentParser(description="Multi-Platform Social Media Scraper CLI")
     parser.add_argument("--status", action="store_true", help="Display configuration and scraper status")
     parser.add_argument("--login-instagram", action="store_true", help="Open browser to login and save Instagram cookies")
+    parser.add_argument("--login-tiktok", action="store_true", help="Open browser to login and save TikTok cookies")
     parser.add_argument("--platform", choices=["instagram", "tiktok", "twitter"], help="Target platform")
     parser.add_argument("--username", type=str, help="Target username to scrape")
-    parser.add_argument("--limit", type=int, default=12, help="Number of posts to fetch")
+    parser.add_argument("--limit", type=int, default=12, help="Number of items to fetch")
     parser.add_argument("--format", choices=["json", "csv", "sqlite"], default=settings.default_output_format, help="Output format")
 
     args = parser.parse_args()
@@ -109,16 +157,24 @@ def main():
         asyncio.run(auth.login_interactive())
         return
 
+    if args.login_tiktok:
+        auth = TikTokAuth()
+        asyncio.run(auth.login_interactive())
+        return
+
     if args.status or len(sys.argv) == 1:
         show_status()
-        console.print("\n[yellow]Tip: Run with --platform instagram --username <target> to scrape posts.[/yellow]")
+        console.print("\n[yellow]Tip: Run with --platform tiktok --username <target> to scrape videos.[/yellow]")
+        return
+
+    if not args.username:
+        console.print("[bold red]Error: --username is required for scraping.[/bold red]")
         return
 
     if args.platform == "instagram":
-        if not args.username:
-            console.print("[bold red]Error: --username is required for scraping.[/bold red]")
-            return
         asyncio.run(run_instagram_scraper(args.username, args.limit, args.format))
+    elif args.platform == "tiktok":
+        asyncio.run(run_tiktok_scraper(args.username, args.limit, args.format))
     else:
         console.print(f"[yellow]Platform {args.platform} scraper is scheduled for upcoming modules![/yellow]")
 
