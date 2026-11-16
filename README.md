@@ -57,3 +57,20 @@ Scraper modular anti-deteksi berbasis Python (Playwright) untuk mengekstrak prof
    # Ekspor ke CSV
    python main.py --platform tiktok --username target_creator --limit 50 --format csv
    ```
+
+### 🐦 Cara Pakai X (Twitter) Scraper
+
+1. Simpan sesi / cookie X (Twitter) sekali:
+   ```bash
+   python main.py --login-twitter
+   ```
+   *(Jendela browser akan terbuka, silakan login ke akun X Anda untuk menyimpan `auth_token` dan `ct0`)*.
+
+2. Jalankan scraper tweet X:
+   ```bash
+   # Ekspor tweet profil X ke JSON
+   python main.py --platform twitter --username target_handle --limit 20 --format json
+
+   # Ekspor ke CSV
+   python main.py --platform twitter --username target_handle --limit 50 --format csv
+   ```
