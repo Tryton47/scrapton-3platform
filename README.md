@@ -1,6 +1,6 @@
 # Social Media Scraper (Instagram, TikTok, X)
 
-Scraper modular berbasis Python untuk mengekstrak data profil, postingan, dan metrik interaksi (likes, comments, views, shares) dari Instagram, TikTok, dan X (Twitter).
+Scraper modular anti-deteksi berbasis Python (Playwright) untuk mengekstrak profil, video, feed, dan metrik interaksi dari Instagram, TikTok, dan X (Twitter).
 
 ## 🚀 Fitur Utama
 
@@ -40,4 +40,20 @@ Scraper modular berbasis Python untuk mengekstrak data profil, postingan, dan me
 3. Jalankan scraping (contoh):
    ```bash
    python main.py --platform instagram --username target_user --format json
+   ```
+
+### 🎵 Cara Pakai TikTok Scraper
+
+1. Simpan sesi / cookie TikTok sekali (opsional namun disarankan):
+   ```bash
+   python main.py --login-tiktok
+   ```
+
+2. Jalankan scraper video TikTok:
+   ```bash
+   # Ekspor video profil TikTok ke JSON
+   python main.py --platform tiktok --username target_creator --limit 20 --format json
+
+   # Ekspor ke CSV
+   python main.py --platform tiktok --username target_creator --limit 50 --format csv
    ```
