@@ -112,7 +112,10 @@ class TikTokScraper(BaseScraper):
             for _ in range(max(1, limit // 10)):
                 if len(collected_posts) >= limit:
                     break
-                await page.evaluate("window.scrollBy(0, 1000)")
+                try:
+                    await page.mouse.wheel(0, 1000)
+                except Exception:
+                    pass
                 await self.human_delay(1.0)
 
             await browser.close()
