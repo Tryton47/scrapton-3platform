@@ -74,3 +74,22 @@ Scraper modular anti-deteksi berbasis Python (Playwright) untuk mengekstrak prof
    # Ekspor ke CSV
    python main.py --platform twitter --username target_handle --limit 50 --format csv
    ```
+
+## 🖥️ Antarmuka Web Dashboard (Streamlit)
+
+Selain via terminal CLI, Anda dapat menggunakan antarmuka visual berbasis web interaktif:
+
+1. **Jalankan via batch launcher (Windows)**:
+   Cukup klik dua kali file `run_ui.bat`.
+
+2. **Atau jalankan via terminal**:
+   ```bash
+   streamlit run app.py
+   ```
+   Buka browser di `http://localhost:8501`.
+
+### Fitur Dashboard:
+- 🎯 Pemilihan platform interaktif (TikTok, Instagram, X).
+- 📊 Filter slider limit konten (3 - 50 konten).
+- 📋 Tabel data lengkap dengan fitur search, sort, dan download instan (.csv / .xlsx).
+- 📈 Visualisasi grafik bar perbandingan Views vs Likes.
