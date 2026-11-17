@@ -1,7 +1,7 @@
 """
 Standardized Pydantic data schemas across Instagram, TikTok, and X (Twitter).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ class UserProfile(BaseModel):
     is_verified: bool = False
     profile_url: str
     avatar_url: str | None = None
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class EngagementMetrics(BaseModel):
     """Engagement metrics for a post/tweet/video."""
@@ -41,8 +41,21 @@ class SocialPost(BaseModel):
     content: str = ""
     url: str
     created_at: datetime | None = None
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metrics: EngagementMetrics = Field(default_factory=EngagementMetrics)
     media_urls: list[str] = Field(default_factory=list)
     hashtags: list[str] = Field(default_factory=list)
     extra_metadata: dict[str, Any] = Field(default_factory=dict)
+
+class SocialComment(BaseModel):
+    """Standardized schema for scraped comments across links."""
+    id: str
+    platform: Platform
+    post_url: str
+    author_username: str
+    author_display_name: str | None = None
+    content: str
+    likes_count: int = 0
+    created_at: datetime | None = None
+    scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    reply_count: int = 0
