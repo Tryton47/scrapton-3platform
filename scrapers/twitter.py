@@ -120,7 +120,10 @@ class TwitterScraper(BaseScraper):
             for _ in range(max(1, limit // 10)):
                 if len(collected_tweets) >= limit:
                     break
-                await page.evaluate("window.scrollBy(0, 1000)")
+                try:
+                    await page.mouse.wheel(0, 1000)
+                except Exception:
+                    pass
                 await self.human_delay(1.2)
 
             await browser.close()
