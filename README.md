@@ -93,3 +93,11 @@ Selain via terminal CLI, Anda dapat menggunakan antarmuka visual berbasis web in
 - 📊 Filter slider limit konten (3 - 50 konten).
 - 📋 Tabel data lengkap dengan fitur search, sort, dan download instan (.csv / .xlsx).
 - 📈 Visualisasi grafik bar perbandingan Views vs Likes.
+
+### 💬 Multi-Link Comment Scraper (Baru!)
+
+Anda dapat mengambil seluruh komentar dari **1 link atau 10+ link sekaligus** dari TikTok, Instagram, atau X:
+1. Buka Web Dashboard di `http://localhost:8501`.
+2. Pilih mode **💬 Scrape Komentar dari Link Pilihan**.
+3. Masukkan link postingan (satu link per baris) di kotak teks.
+4. Klik **🚀 Mulai Scrape Komentar** dan unduh hasilnya langsung ke CSV atau Excel.
