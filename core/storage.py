@@ -1,13 +1,16 @@
 """
-Enhanced storage manager with support for Excel (.xlsx) exports alongside JSON, CSV, SQLite.
+Enhanced storage manager with support for Excel (.xlsx), CSV, JSON, and JSONL exports.
+Supports SocialPost, UserProfile, and SocialComment datasets.
 """
 import csv
 import json
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Sequence
 import pandas as pd
-from .models import SocialPost, UserProfile
+from pydantic import BaseModel
+from .models import SocialComment, SocialPost, UserProfile
 
 class StorageManager:
     """Manages serialization and saving of scraped items."""
@@ -16,7 +19,7 @@ class StorageManager:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _flatten_items(self, items: Sequence[SocialPost | UserProfile]) -> list[dict]:
+    def _flatten_items(self, items: Sequence[BaseModel]) -> list[dict]:
         """Flattens nested Pydantic items into flat dictionary rows."""
         flattened = []
         for item in items:
@@ -33,7 +36,7 @@ class StorageManager:
             flattened.append(flat)
         return flattened
 
-    def save_to_json(self, items: Sequence[SocialPost | UserProfile], filename: str) -> Path:
+    def save_to_json(self, items: Sequence[BaseModel], filename: str) -> Path:
         """Export list of items to a nicely formatted JSON file."""
         if not filename.endswith(".json"):
             filename += ".json"
@@ -43,7 +46,18 @@ class StorageManager:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return target_path
 
-    def save_to_csv(self, items: Sequence[SocialPost | UserProfile], filename: str) -> Path:
+    def save_to_jsonl(self, items: Sequence[BaseModel], filename: str) -> Path:
+        """Export items in newline-delimited JSON format (JSONL)."""
+        if not filename.endswith(".jsonl"):
+            filename += ".jsonl"
+        target_path = self.output_dir / filename
+        with open(target_path, "w", encoding="utf-8") as f:
+            for item in items:
+                line = json.dumps(item.model_dump(mode="json"), ensure_ascii=False)
+                f.write(line + "\n")
+        return target_path
+
+    def save_to_csv(self, items: Sequence[BaseModel], filename: str) -> Path:
         """Export list of items to CSV file."""
         if not items:
             raise ValueError("No items to export to CSV")
@@ -59,7 +73,7 @@ class StorageManager:
             writer.writerows(flattened)
         return target_path
 
-    def save_to_excel(self, items: Sequence[SocialPost | UserProfile], filename: str) -> Path:
+    def save_to_excel(self, items: Sequence[BaseModel], filename: str) -> Path:
         """Export items to Excel spreadsheet (.xlsx)."""
         if not items:
             raise ValueError("No items to export to Excel")
@@ -69,8 +83,19 @@ class StorageManager:
 
         flattened = self._flatten_items(items)
         df = pd.DataFrame(flattened)
-        df.to_excel(target_path, index=False, engine="openpyxl" if "openpyxl" in sys.modules else None)
+        df.to_excel(target_path, index=False)
         return target_path
+
+    def save_comments(self, comments: Sequence[SocialComment], base_name: str = "comments") -> dict[str, Path]:
+        """Convenience method to export comments to JSON, CSV, and Excel at once."""
+        if not comments:
+            return {}
+        return {
+            "json": self.save_to_json(comments, f"{base_name}.json"),
+            "jsonl": self.save_to_jsonl(comments, f"{base_name}.jsonl"),
+            "csv": self.save_to_csv(comments, f"{base_name}.csv"),
+            "excel": self.save_to_excel(comments, f"{base_name}.xlsx"),
+        }
 
     def save_to_sqlite(self, posts: Sequence[SocialPost], db_name: str = "scraped_data.db") -> Path:
         """Export posts to an SQLite table."""
