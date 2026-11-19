@@ -1,224 +1,449 @@
 """
-Streamlit Web Dashboard for Social Media Scraper Suite.
-Supports:
-1. Multi-Link Comment Scraper (Bebas input 1 atau banyak link TikTok, Instagram, X)
-2. Profile & Timeline Scraper (Scrape postingan dari username)
+Scrapton: Apify-Style Actor Console for Social Media Comment Scraping.
+Focused developer interface for batch comment extraction from TikTok, Instagram, and X.
 """
 import asyncio
 import io
-import json
+import time
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from core.storage import StorageManager
 from scrapers.comment_scraper import CommentScraper, detect_platform_from_url
-from scrapers.tiktok import TikTokScraper
-from scrapers.instagram import InstagramScraper
-from scrapers.twitter import TwitterScraper
-from ui import render_sidebar, render_custom_styles, prepare_chart_dataframe, get_metric_summary
+from utils.comment_analyzer import analyze_comment
 
+# ── Page Configuration ───────────────────────────────────────────────
 st.set_page_config(
-    page_title="Scrapton - Multi-Platform Scraper",
+    page_title="Scrapton Actor Console",
     page_icon="🕸️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
-render_custom_styles()
-platform, default_user, default_limit = render_sidebar()
+# ── CSS: High-Density Apify / Zinc Developer Tool Styling ────────────
+st.markdown("""
+<style>
+    /* Reset Streamlit chrome */
+    #MainMenu, footer, header {visibility: hidden;}
+    .block-container {
+        padding: 1.25rem 2rem 3rem 2rem;
+        max-width: 1200px;
+    }
+    [data-testid="collapsedControl"] {display: none;}
 
-# Title
-st.markdown('<div class="main-title">🕸️ Scrapton Multi-Platform Scraper</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Scraper komentar berdasarkan link kustom atau ekstraksi konten profil (TikTok, IG, X)</div>', unsafe_allow_html=True)
+    /* Typography & Core Palette */
+    * {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    code, kbd, samp, pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+    }
 
-# Main Navigation Mode
-scrape_mode = st.radio(
-    "📌 Pilih Mode Scraping:",
-    options=["💬 Scrape Komentar dari Link Pilihan (Bebas Banyak Link)", "👤 Scrape Profil & Feed Akun"],
-    horizontal=True
-)
+    /* Actor Header Banner */
+    .actor-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        background: #18181b;
+        border: 1px solid #27272a;
+        border-radius: 8px;
+        margin-bottom: 18px;
+    }
+    .actor-title-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .actor-icon {
+        width: 36px;
+        height: 36px;
+        background: #27272a;
+        border: 1px solid #3f3f46;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+    }
+    .actor-name {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f4f4f5;
+        letter-spacing: -0.3px;
+        margin: 0;
+    }
+    .actor-namespace {
+        color: #71717a;
+        font-weight: 400;
+        margin-right: 2px;
+    }
+    .version-tag {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: #27272a;
+        color: #a1a1aa;
+        border: 1px solid #3f3f46;
+        font-family: monospace;
+    }
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 4px;
+        background: rgba(16, 185, 129, 0.12);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.25);
+    }
 
-st.markdown("---")
+    /* Terminal Console Box */
+    .terminal-box {
+        background: #09090b;
+        border: 1px solid #27272a;
+        border-radius: 6px;
+        padding: 14px 16px;
+        font-family: monospace;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: #d4d4d8;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+    .terminal-time {
+        color: #71717a;
+    }
+    .terminal-tag {
+        color: #10b981;
+        font-weight: 600;
+    }
+    .terminal-url {
+        color: #38bdf8;
+    }
 
-# ==========================================
-# MODE 1: MULTI-LINK COMMENT SCRAPER
-# ==========================================
-if "Scrape Komentar" in scrape_mode:
-    st.subheader("💬 Multi-Link Comment Scraper")
-    st.write("Masukkan satu atau beberapa link postingan/video (TikTok, Instagram Reels/Post, atau Tweet X). Setiap link dipisahkan oleh baris baru.")
+    /* High Density Metric Cards */
+    [data-testid="stMetric"] {
+        background: #18181b !important;
+        border: 1px solid #27272a !important;
+        border-radius: 6px !important;
+        padding: 12px 16px !important;
+    }
+    [data-testid="stMetric"] label {
+        color: #a1a1aa !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        font-size: 24px !important;
+        font-weight: 700 !important;
+        color: #fafafa !important;
+        font-family: monospace;
+    }
 
-    links_input = st.text_area(
-        "🔗 Daftar Link URL Postingan (1 link per baris):",
-        placeholder="https://www.tiktok.com/@tiktok/video/7708408003065580831\nhttps://www.instagram.com/p/C_abc123/\nhttps://x.com/elonmusk/status/1800000000000000000",
-        height=140
+    /* Action Buttons */
+    div.stButton > button[kind="primary"] {
+        background: #10b981 !important;
+        color: #09090b !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 10px 20px !important;
+        transition: background 0.15s ease;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background: #059669 !important;
+    }
+
+    div.stDownloadButton > button {
+        background: #18181b !important;
+        color: #e4e4e7 !important;
+        border: 1px solid #3f3f46 !important;
+        border-radius: 6px !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+    }
+    div.stDownloadButton > button:hover {
+        background: #27272a !important;
+        border-color: #52525b !important;
+    }
+
+    /* Tabs Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 1px solid #27272a;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #a1a1aa;
+        border-radius: 6px 6px 0 0;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #10b981 !important;
+        border-bottom: 2px solid #10b981 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Actor Header ─────────────────────────────────────────────────────
+st.markdown("""
+<div class="actor-header">
+    <div class="actor-title-row">
+        <div class="actor-icon">🕷️</div>
+        <div>
+            <h1 class="actor-name"><span class="actor-namespace">scrapton/</span>social-comment-scraper</h1>
+            <div style="display:flex; gap:8px; margin-top:4px; align-items:center;">
+                <span class="version-tag">v2.2.0</span>
+                <span style="font-size:12px; color:#71717a;">Multi-link comment extractor for TikTok, Instagram, and X</span>
+            </div>
+        </div>
+    </div>
+    <div>
+        <span class="status-badge">● System Ready</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Session State Initialization ─────────────────────────────────────
+if "url_input_data" not in st.session_state:
+    st.session_state["url_input_data"] = pd.DataFrame([
+        {
+            "URL": "https://www.tiktok.com/@tiktok/video/7708408003065580831",
+            "Platform": "TikTok",
+            "Label": "sample-tiktok",
+        },
+        {
+            "URL": "https://www.instagram.com/p/DF123456789/",
+            "Platform": "Instagram",
+            "Label": "sample-ig",
+        },
+    ])
+
+if "run_logs" not in st.session_state:
+    st.session_state["run_logs"] = [
+        f"[{datetime.now().strftime('%H:%M:%S')}] System initialized. Actor ready for execution."
+    ]
+
+if "dataset_results" not in st.session_state:
+    st.session_state["dataset_results"] = []
+
+# ── Main Tabs ────────────────────────────────────────────────────────
+tab_input, tab_console, tab_storage = st.tabs([
+    "📥 1. Input Configuration",
+    "🖥️ 2. Execution Console",
+    "📊 3. Storage Dataset",
+])
+
+# ── Tab 1: Input Configuration ───────────────────────────────────────
+with tab_input:
+    st.caption("Konfigurasi target URL dan parameter scraping. Input mendukung multi-link sekaligus.")
+
+    col_grid, col_config = st.columns([3, 1], gap="medium")
+
+    with col_grid:
+        st.markdown("**Start URLs (Tabel Input Target)**")
+        edited_df = st.data_editor(
+            st.session_state["url_input_data"],
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "URL": st.column_config.TextColumn(
+                    "Post / Video URL",
+                    help="Paste URL postingan TikTok, Instagram Reels, atau Tweet",
+                    required=True,
+                ),
+                "Platform": st.column_config.SelectboxColumn(
+                    "Platform (Auto/Manual)",
+                    options=["Auto-Detect", "TikTok", "Instagram", "Twitter / X"],
+                    default="Auto-Detect",
+                    width="small",
+                ),
+                "Label": st.column_config.TextColumn(
+                    "Label / Tag",
+                    help="Identifier opsional untuk pengelompokan output",
+                    width="small",
+                ),
+            },
+            key="actor_url_editor",
+        )
+
+    with col_config:
+        st.markdown("**Run Options**")
+        max_comments_per_url = st.number_input(
+            "Max Comments / URL",
+            min_value=5,
+            max_value=300,
+            value=25,
+            step=5,
+            help="Batas maksimum komentar yang diambil per link",
+        )
+        include_analysis = st.checkbox(
+            "Auto Sentiment & Spam Analysis",
+            value=True,
+            help="Tambahkan kolom analisis sentimen dan indikator spam",
+        )
+        st.markdown("---")
+        run_actor_button = st.button("🚀 Start Actor Run", type="primary", use_container_width=True)
+
+# ── Execution Logic ──────────────────────────────────────────────────
+async def execute_scraping_job(urls: list[str], max_limit: int, analyze: bool):
+    scraper = CommentScraper()
+    extracted_items = []
+    log_stream = st.session_state["run_logs"]
+
+    progress_bar = st.progress(0, text="Menginisialisasi browser engine...")
+
+    for i, url in enumerate(urls, 1):
+        plat = detect_platform_from_url(url)
+        plat_name = plat.value.upper() if plat else "UNKNOWN"
+        now_str = datetime.now().strftime("%H:%M:%S")
+
+        msg = f"[{now_str}] [{i}/{len(urls)}] Scraping {plat_name}: {url[:60]}"
+        log_stream.append(msg)
+
+        try:
+            batch = await scraper.scrape_comments_from_url(url, max_comments=max_limit)
+            for item in batch:
+                dumped = item.model_dump(mode="json")
+                if analyze:
+                    dumped = analyze_comment(dumped)
+                extracted_items.append(dumped)
+
+            success_msg = f"[{now_str}] ✓ Berhasil mengambil {len(batch)} komentar dari {plat_name}"
+            log_stream.append(success_msg)
+        except Exception as exc:
+            err_msg = f"[{now_str}] ✗ Error pada {url[:45]}: {str(exc)}"
+            log_stream.append(err_msg)
+
+        progress_bar.progress(i / len(urls), text=f"Progress: {i}/{len(urls)} URLs selesai")
+
+    progress_bar.empty()
+    st.session_state["dataset_results"] = extracted_items
+    st.session_state["run_logs"].append(
+        f"[{datetime.now().strftime('%H:%M:%S')}] Job selesai. Total {len(extracted_items)} record berhasil disimpan ke Dataset."
     )
 
-    col_opt1, col_opt2 = st.columns([1, 1])
-    with col_opt1:
-        comments_per_link = st.slider("🎯 Maksimal Komentar per Link", min_value=5, max_value=100, value=25, step=5)
-    with col_opt2:
-        st.info("💡 Scraper akan mengunjungi setiap link secara berurutan dan mengumpulkan semua komentar ke dalam 1 tabel yang sama.")
+if run_actor_button:
+    valid_urls = [
+        str(row["URL"]).strip()
+        for _, row in edited_df.iterrows()
+        if isinstance(row.get("URL"), str) and str(row.get("URL")).strip().startswith("http")
+    ]
 
-    btn_scrape_comments = st.button("🚀 Mulai Scrape Komentar", type="primary", use_container_width=True)
+    if not valid_urls:
+        st.error("Masukkan minimal 1 URL valid di tabel input (diawali http/https).")
+    else:
+        st.toast(f"Memulai scraping untuk {len(valid_urls)} link...", icon="⚙️")
+        asyncio.run(execute_scraping_job(valid_urls, max_comments_per_url, include_analysis))
+        st.toast("Scraping selesai! Buka tab Storage Dataset untuk melihat hasil.", icon="✅")
 
-    if btn_scrape_comments:
-        raw_urls = [line.strip() for line in links_input.strip().splitlines() if line.strip()]
-        if not raw_urls:
-            st.error("Silakan masukkan minimal 1 link postingan terlebih dahulu!")
-        else:
-            all_comments = []
-            comment_scraper = CommentScraper()
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+# ── Tab 2: Execution Console ─────────────────────────────────────────
+with tab_console:
+    st.markdown("**Live Run Logs (Console Output)**")
+    log_content = "<br>".join([
+        f'<span class="terminal-time">{l.split("]")[0]}]</span> {l.split("]", 1)[-1]}'
+        for l in st.session_state["run_logs"]
+    ])
+    st.markdown(f'<div class="terminal-box">{log_content}</div>', unsafe_allow_html=True)
+    if st.button("Clear Logs", use_container_width=False):
+        st.session_state["run_logs"] = [f"[{datetime.now().strftime('%H:%M:%S')}] Logs reset by user."]
+        st.rerun()
 
-            for idx, url in enumerate(raw_urls):
-                platform_detected = detect_platform_from_url(url)
-                plat_name = platform_detected.value.upper() if platform_detected else "UNKNOWN"
-                status_text.write(f"⏳ ({idx + 1}/{len(raw_urls)}) Membaca komentar dari [{plat_name}]: `{url}`...")
-                
-                try:
-                    result = asyncio.run(comment_scraper.scrape_comments_from_url(url, max_comments=comments_per_link))
-                    all_comments.extend(result)
-                except Exception as e:
-                    st.warning(f"Gagal mengambil komentar dari {url}: {str(e)}")
+# ── Tab 3: Storage Dataset ───────────────────────────────────────────
+with tab_storage:
+    data_list = st.session_state.get("dataset_results", [])
 
-                progress_bar.progress((idx + 1) / len(raw_urls))
+    if not data_list:
+        st.info("Dataset masih kosong. Jalankan scraping pada tab 'Input Configuration' terlebih dahulu.")
+    else:
+        df_result = pd.DataFrame(data_list)
 
-            status_text.empty()
-            progress_bar.empty()
+        # Dataset Metrics Summary
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Records", f"{len(df_result):,}")
+        m2.metric("Target URLs", df_result["post_url"].nunique() if "post_url" in df_result.columns else 0)
+        likes_total = int(df_result["likes_count"].sum()) if "likes_count" in df_result.columns else 0
+        m3.metric("Total Likes", f"{likes_total:,}")
+        plat_count = df_result["platform"].nunique() if "platform" in df_result.columns else 0
+        m4.metric("Platforms", plat_count)
 
-            if all_comments:
-                st.session_state["comment_results"] = all_comments
-                st.success(f"🎉 Berhasil mengumpulkan total {len(all_comments)} komentar dari {len(raw_urls)} link!")
-            else:
-                st.warning("Tidak ada komentar yang berhasil diambil. Pastikan link valid atau platform tidak terkunci login wall.")
+        st.markdown("---")
 
-    # Show Comment Results
-    if "comment_results" in st.session_state and st.session_state["comment_results"]:
-        comments = st.session_state["comment_results"]
-        st.markdown("### 📋 Hasil Scraping Komentar")
+        # Filters row
+        f_col1, f_col2 = st.columns([2, 1])
+        with f_col1:
+            search_query = st.text_input("Filter berdasarkan teks komentar / username", placeholder="Cari keyword...")
+        with f_col2:
+            platforms_list = ["Semua"] + list(df_result["platform"].unique()) if "platform" in df_result.columns else ["Semua"]
+            selected_plat = st.selectbox("Filter Platform", options=platforms_list)
 
-        storage = StorageManager()
-        flat_comments = [c.model_dump(mode="json") for c in comments]
-        df_comm = pd.DataFrame(flat_comments)
+        filtered_df = df_result.copy()
+        if selected_plat != "Semua" and "platform" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["platform"] == selected_plat]
+        if search_query:
+            q = search_query.lower()
+            mask = filtered_df["content"].astype(str).str.lower().str.contains(q) | \
+                   filtered_df["author_username"].astype(str).str.lower().str.contains(q)
+            filtered_df = filtered_df[mask]
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Komentar", len(df_comm))
-        col2.metric("Total Link Terproses", df_comm["post_url"].nunique())
-        col3.metric("Total Likes Komentar", int(df_comm["likes_count"].sum()) if "likes_count" in df_comm.columns else 0)
+        # Table Display
+        display_cols = [c for c in [
+            "platform", "author_username", "content", "sentiment",
+            "likes_count", "reply_count", "is_spam", "post_url"
+        ] if c in filtered_df.columns]
 
-        # Reorder columns
-        ordered_cols = ["platform", "author_username", "content", "likes_count", "reply_count", "post_url", "id"]
-        avail_cols = [c for c in ordered_cols if c in df_comm.columns]
-        df_comm = df_comm[avail_cols]
+        st.dataframe(
+            filtered_df[display_cols],
+            use_container_width=True,
+            height=420,
+            column_config={
+                "platform": st.column_config.TextColumn("Platform", width="small"),
+                "author_username": st.column_config.TextColumn("Author", width="medium"),
+                "content": st.column_config.TextColumn("Comment Text", width="large"),
+                "sentiment": st.column_config.TextColumn("Sentiment", width="small"),
+                "likes_count": st.column_config.NumberColumn("Likes", format="%d", width="small"),
+                "reply_count": st.column_config.NumberColumn("Replies", format="%d", width="small"),
+                "is_spam": st.column_config.CheckboxColumn("Spam?", width="small"),
+                "post_url": st.column_config.LinkColumn("Source URL", width="medium"),
+            },
+        )
 
-        st.dataframe(df_comm, use_container_width=True, height=400)
+        # Export Actions
+        st.markdown("**Export Dataset**")
+        exp1, exp2, exp3 = st.columns(3)
 
-        col_d1, col_d2 = st.columns(2)
-        csv_data = df_comm.to_csv(index=False).encode("utf-8")
-        col_d1.download_button(
-            label="📥 Unduh Komentar sebagai CSV",
-            data=csv_data,
-            file_name="scraped_comments.csv",
+        csv_bytes = filtered_df.to_csv(index=False).encode("utf-8")
+        exp1.download_button(
+            "📥 Download CSV",
+            data=csv_bytes,
+            file_name="dataset_comments.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
         )
 
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df_comm.to_excel(writer, index=False, sheet_name="Comments")
-        col_d2.download_button(
-            label="📊 Unduh Komentar sebagai Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name="scraped_comments.xlsx",
+        excel_buf = io.BytesIO()
+        with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+            filtered_df.to_excel(writer, index=False, sheet_name="Comments")
+        exp2.download_button(
+            "📊 Download Excel (.xlsx)",
+            data=excel_buf.getvalue(),
+            file_name="dataset_comments.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            use_container_width=True,
         )
 
-# ==========================================
-# MODE 2: PROFILE & FEED SCRAPER
-# ==========================================
-else:
-    st.subheader(f"👤 Scrape Profil & Feed Akun ({platform.upper()})")
-    
-    col_u1, col_u2 = st.columns([2, 1])
-    with col_u1:
-        target_username = st.text_input("Target Username:", value=default_user, placeholder="misal: tiktok, cristiano, elonmusk").strip().lstrip("@")
-    with col_u2:
-        feed_limit = st.slider("Maksimal Postingan:", min_value=3, max_value=50, value=default_limit, step=1)
-
-    btn_scrape_profile = st.button("🚀 Mulai Scrape Profil & Feed", type="primary", use_container_width=True)
-
-    async def scrape_profile_flow(plat: str, user: str, limit: int):
-        posts = []
-        profile = None
-        if plat == "tiktok":
-            scraper = TikTokScraper()
-            profile = await scraper.get_profile(user)
-            async for post in scraper.get_user_posts(user, limit=limit):
-                posts.append(post)
-        elif plat == "instagram":
-            scraper = InstagramScraper()
-            profile = await scraper.get_profile(user)
-            async for post in scraper.get_user_posts(user, limit=limit):
-                posts.append(post)
-        elif plat == "twitter":
-            scraper = TwitterScraper()
-            profile = await scraper.get_profile(user)
-            async for post in scraper.get_user_posts(user, limit=limit):
-                posts.append(post)
-        return profile, posts
-
-    if btn_scrape_profile:
-        if not target_username:
-            st.error("Silakan masukkan username target terlebih dahulu!")
-        else:
-            with st.spinner(f"Mengumpulkan konten dari @{target_username}..."):
-                try:
-                    profile, posts = asyncio.run(scrape_profile_flow(platform, target_username, feed_limit))
-                    st.session_state["feed_posts"] = posts
-                    st.session_state["feed_profile"] = profile
-                    st.session_state["feed_user"] = target_username
-                    st.session_state["feed_plat"] = platform
-                    st.success(f"Berhasil mengumpulkan {len(posts)} konten dari @{target_username}!")
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan saat scraping: {str(e)}")
-
-    if "feed_posts" in st.session_state and st.session_state["feed_posts"]:
-        posts = st.session_state["feed_posts"]
-        profile = st.session_state.get("feed_profile")
-        user = st.session_state.get("feed_user")
-
-        if profile:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Display Name", profile.display_name or f"@{profile.username}")
-            col2.metric("Followers", f"{profile.followers_count:,}")
-            col3.metric("Following", f"{profile.following_count:,}")
-            col4.metric("Item Terkumpul", len(posts))
-
-        storage = StorageManager()
-        flattened = storage._flatten_items(posts)
-        df = pd.DataFrame(flattened)
-
-        st.dataframe(df, use_container_width=True, height=400)
-
-        col_d1, col_d2 = st.columns(2)
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        col_d1.download_button(
-            label="📥 Unduh sebagai CSV",
-            data=csv_data,
-            file_name=f"{st.session_state['feed_plat']}_{user}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Feed")
-        col_d2.download_button(
-            label="📊 Unduh sebagai Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"{st.session_state['feed_plat']}_{user}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+        json_bytes = filtered_df.to_json(orient="records", indent=2, force_ascii=False).encode("utf-8")
+        exp3.download_button(
+            "📋 Download JSON",
+            data=json_bytes,
+            file_name="dataset_comments.json",
+            mime="application/json",
+            use_container_width=True,
         )
