@@ -13,6 +13,7 @@ from rich.table import Table
 from config.settings import settings
 from core.models import Platform
 from core.storage import StorageManager
+from scrapers.comment_scraper import CommentScraper, detect_platform_from_url
 from scrapers.instagram import InstagramScraper
 from scrapers.instagram_auth import InstagramAuth
 from scrapers.tiktok import TikTokScraper
@@ -161,6 +162,59 @@ async def run_twitter_scraper(username: str, limit: int, export_format: str):
     base_name = f"twitter_{cleaned_username}"
     save_scraped_items(storage, posts, base_name, export_format)
 
+async def run_comment_cli(urls: list[str], max_comments: int, export_format: str):
+    """Execute multi-link comment scraping from CLI."""
+    scraper = CommentScraper()
+    storage = StorageManager()
+    all_comments = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(description=f"Starting comment extraction across {len(urls)} link(s)...", total=len(urls))
+        for idx, url in enumerate(urls, 1):
+            plat = detect_platform_from_url(url)
+            tag = plat.value.upper() if plat else "UNKNOWN"
+            progress.update(task, description=f"[{idx}/{len(urls)}] Scraping comments from {tag}...", completed=idx)
+            try:
+                comments = await scraper.scrape_comments_from_url(url, max_comments=max_comments)
+                all_comments.extend(comments)
+                console.print(f"[green]✓[/green] Scraped {len(comments)} comment(s) from: [cyan]{url[:70]}[/cyan]")
+            except Exception as e:
+                console.print(f"[red]✗[/red] Failed {url[:50]}: {e}")
+
+    if not all_comments:
+        console.print("[yellow]No comments were extracted. Ensure URLs are accessible and valid.[/yellow]")
+        return
+
+    table = Table(title=f"Comment Scrape Summary ({len(all_comments)} items)")
+    table.add_column("Author", style="cyan")
+    table.add_column("Comment Preview", style="white")
+    table.add_column("Likes", style="yellow")
+    table.add_column("Platform", style="green")
+
+    for c in all_comments[:5]:
+        preview = (c.content[:45] + "...") if len(c.content) > 45 else c.content
+        table.add_row(c.author_username, preview, str(c.likes_count), c.platform.value)
+
+    if len(all_comments) > 5:
+        table.add_row("...", f"... and {len(all_comments) - 5} more comments", "...", "...")
+    console.print(table)
+
+    base_name = f"comments_{len(all_comments)}_items"
+    if export_format == "csv":
+        path = storage.save_to_csv(all_comments, base_name)
+    elif export_format == "excel":
+        path = storage.save_to_excel(all_comments, base_name)
+    elif export_format == "jsonl":
+        path = storage.save_to_jsonl(all_comments, base_name)
+    else:
+        path = storage.save_to_json(all_comments, base_name)
+
+    console.print(f"[bold green]Data exported successfully to:[/bold green] {path}")
+
 def save_scraped_items(storage: StorageManager, posts: list, base_name: str, export_format: str):
     """Save posts to target format."""
     if export_format == "json":
@@ -182,8 +236,11 @@ def main():
     parser.add_argument("--login-twitter", action="store_true", help="Open browser to login and save X (Twitter) cookies")
     parser.add_argument("--platform", choices=["instagram", "tiktok", "twitter"], help="Target platform")
     parser.add_argument("--username", type=str, help="Target username to scrape")
+    parser.add_argument("--comments", nargs="+", help="One or more post/video URLs to scrape comments from")
+    parser.add_argument("--comments-file", type=str, help="Path to text file containing target URLs (one per line)")
     parser.add_argument("--limit", type=int, default=12, help="Number of items to fetch")
-    parser.add_argument("--format", choices=["json", "csv", "sqlite"], default=settings.default_output_format, help="Output format")
+    parser.add_argument("--max-comments", type=int, default=25, help="Max comments per URL (default: 25)")
+    parser.add_argument("--format", choices=["json", "jsonl", "csv", "excel", "sqlite"], default=settings.default_output_format, help="Output format")
 
     args = parser.parse_args()
 
@@ -206,8 +263,28 @@ def main():
         console.print("\n[yellow]Tip: Run with --platform <instagram|tiktok|twitter> --username <target> to scrape.[/yellow]")
         return
 
+    if args.comments or args.comments_file:
+        urls: list[str] = []
+        if args.comments:
+            urls.extend(args.comments)
+        if args.comments_file:
+            try:
+                with open(args.comments_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        cleaned = line.strip()
+                        if cleaned.startswith("http"):
+                            urls.append(cleaned)
+            except Exception as e:
+                console.print(f"[bold red]Failed to read comments file:[/bold red] {e}")
+                return
+        if not urls:
+            console.print("[bold red]No valid URLs found for comment extraction.[/bold red]")
+            return
+        asyncio.run(run_comment_cli(urls, args.max_comments, args.format))
+        return
+
     if not args.username:
-        console.print("[bold red]Error: --username is required for scraping.[/bold red]")
+        console.print("[bold red]Error: either --username or --comments is required for scraping.[/bold red]")
         return
 
     if args.platform == "instagram":
