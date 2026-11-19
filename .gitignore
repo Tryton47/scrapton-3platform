@@ -43,3 +43,7 @@ sessions/*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Logs
+streamlit.log
+*.log

@@ -2,7 +2,7 @@
 Post and Reel extractor for Instagram.
 Parses GraphQL node dictionaries into standardized SocialPost objects.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from core.models import EngagementMetrics, Platform, SocialPost
 from utils.parser import clean_text, extract_hashtags
@@ -23,7 +23,7 @@ def parse_instagram_post_node(node: dict[str, Any], default_author: str = "") ->
 
     # Timestamps
     taken_at_timestamp = node.get("taken_at_timestamp")
-    created_at = datetime.utcfromtimestamp(taken_at_timestamp) if taken_at_timestamp else None
+    created_at = datetime.fromtimestamp(taken_at_timestamp, timezone.utc) if taken_at_timestamp else None
 
     # Author
     author = node.get("owner", {}).get("username") or default_author
