@@ -50,10 +50,13 @@ Anda dapat mengekstrak komentar langsung dari terminal tanpa membuka browser:
 # 1. Scrape komentar dari satu atau beberapa URL
 python main.py --comments "https://www.tiktok.com/@tiktok/video/7708408003065580831" --max-comments 30 --format csv
 
-# 2. Scrape komentar dari file daftar URL (satu link per baris)
+# 2. Scrape komentar dengan filter kata kunci dan minimal likes
+python main.py --comments "https://www.tiktok.com/@tiktok/video/7708408003065580831" --keyword "keren" --min-likes 5 --exclude-spam
+
+# 3. Scrape komentar dari file daftar URL (satu link per baris)
 python main.py --comments-file urls.txt --max-comments 50 --format excel
 
-# 3. Ekspor format JSONL (Newline Delimited JSON)
+# 4. Ekspor format JSONL (Newline Delimited JSON)
 python main.py --comments "https://x.com/user/status/123456789" --format jsonl
 ```
 
