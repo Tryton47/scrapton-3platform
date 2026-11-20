@@ -59,3 +59,5 @@ class SocialComment(BaseModel):
     created_at: datetime | None = None
     scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     reply_count: int = 0
+    reply_to_id: str | None = None
+    language: str | None = None
