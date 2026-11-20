@@ -14,6 +14,8 @@ from config.settings import settings
 from core.models import Platform
 from core.storage import StorageManager
 from scrapers.comment_scraper import CommentScraper, detect_platform_from_url
+from utils.comment_analyzer import analyze_comment
+from utils.filter_engine import CommentFilterCriteria, filter_comments
 from scrapers.instagram import InstagramScraper
 from scrapers.instagram_auth import InstagramAuth
 from scrapers.tiktok import TikTokScraper
@@ -162,8 +164,15 @@ async def run_twitter_scraper(username: str, limit: int, export_format: str):
     base_name = f"twitter_{cleaned_username}"
     save_scraped_items(storage, posts, base_name, export_format)
 
-async def run_comment_cli(urls: list[str], max_comments: int, export_format: str):
-    """Execute multi-link comment scraping from CLI."""
+async def run_comment_cli(
+    urls: list[str],
+    max_comments: int,
+    export_format: str,
+    keyword: str | None = None,
+    min_likes: int = 0,
+    exclude_spam: bool = False,
+):
+    """Execute multi-link comment scraping from CLI with optional filtering."""
     scraper = CommentScraper()
     storage = StorageManager()
     all_comments = []
@@ -188,6 +197,25 @@ async def run_comment_cli(urls: list[str], max_comments: int, export_format: str
     if not all_comments:
         console.print("[yellow]No comments were extracted. Ensure URLs are accessible and valid.[/yellow]")
         return
+
+    # Apply filtering criteria if requested
+    if keyword or min_likes > 0 or exclude_spam:
+        criteria = CommentFilterCriteria(
+            keyword=keyword,
+            min_likes=min_likes,
+            exclude_spam=exclude_spam,
+        )
+        before_count = len(all_comments)
+        # Enrich with spam analysis if spam filter is on
+        if exclude_spam:
+            analyzed = [analyze_comment(c.model_dump(mode="json")) for c in all_comments]
+            filtered_dicts = filter_comments(analyzed, criteria)
+            # Reconstruct or match
+            surviving_ids = {d["id"] for d in filtered_dicts}
+            all_comments = [c for c in all_comments if c.id in surviving_ids]
+        else:
+            all_comments = filter_comments(all_comments, criteria)
+        console.print(f"[dim]Filtered: {len(all_comments)} of {before_count} comments match criteria.[/dim]")
 
     table = Table(title=f"Comment Scrape Summary ({len(all_comments)} items)")
     table.add_column("Author", style="cyan")
@@ -240,6 +268,9 @@ def main():
     parser.add_argument("--comments-file", type=str, help="Path to text file containing target URLs (one per line)")
     parser.add_argument("--limit", type=int, default=12, help="Number of items to fetch")
     parser.add_argument("--max-comments", type=int, default=25, help="Max comments per URL (default: 25)")
+    parser.add_argument("--keyword", type=str, help="Filter comments by matching keyword or phrase")
+    parser.add_argument("--min-likes", type=int, default=0, help="Minimum likes count threshold")
+    parser.add_argument("--exclude-spam", action="store_true", help="Filter out likely promotional/bot comments")
     parser.add_argument("--format", choices=["json", "jsonl", "csv", "excel", "sqlite"], default=settings.default_output_format, help="Output format")
 
     args = parser.parse_args()
@@ -280,7 +311,14 @@ def main():
         if not urls:
             console.print("[bold red]No valid URLs found for comment extraction.[/bold red]")
             return
-        asyncio.run(run_comment_cli(urls, args.max_comments, args.format))
+        asyncio.run(run_comment_cli(
+            urls,
+            args.max_comments,
+            args.format,
+            keyword=args.keyword,
+            min_likes=args.min_likes,
+            exclude_spam=args.exclude_spam,
+        ))
         return
 
     if not args.username:
