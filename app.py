@@ -249,6 +249,24 @@ with tab_input:
 
     with col_grid:
         st.markdown("**Start URLs (Tabel Input Target)**")
+
+        preset_col1, preset_col2, preset_col3 = st.columns(3)
+        if preset_col1.button("📋 Load TikTok Sample", use_container_width=True):
+            st.session_state["url_input_data"] = pd.DataFrame([
+                {"URL": "https://www.tiktok.com/@tiktok/video/7708408003065580831", "Platform": "TikTok", "Label": "tiktok-demo"},
+            ])
+            st.rerun()
+        if preset_col2.button("📋 Load Instagram Sample", use_container_width=True):
+            st.session_state["url_input_data"] = pd.DataFrame([
+                {"URL": "https://www.instagram.com/p/DF123456789/", "Platform": "Instagram", "Label": "ig-demo"},
+            ])
+            st.rerun()
+        if preset_col3.button("🗑️ Kosongkan Tabel", use_container_width=True):
+            st.session_state["url_input_data"] = pd.DataFrame([
+                {"URL": "", "Platform": "Auto-Detect", "Label": ""},
+            ])
+            st.rerun()
+
         edited_df = st.data_editor(
             st.session_state["url_input_data"],
             num_rows="dynamic",
@@ -377,16 +395,33 @@ with tab_storage:
         st.markdown("---")
 
         # Filters row
-        f_col1, f_col2 = st.columns([2, 1])
+        f_col1, f_col2, f_col3 = st.columns([2, 1, 1])
         with f_col1:
-            search_query = st.text_input("Filter berdasarkan teks komentar / username", placeholder="Cari keyword...")
+            search_query = st.text_input("Filter teks komentar / username", placeholder="Cari keyword...")
         with f_col2:
             platforms_list = ["Semua"] + list(df_result["platform"].unique()) if "platform" in df_result.columns else ["Semua"]
-            selected_plat = st.selectbox("Filter Platform", options=platforms_list)
+            selected_plat = st.selectbox("Platform", options=platforms_list)
+        with f_col3:
+            sentiment_list = ["Semua", "positive", "neutral", "negative"]
+            selected_sent = st.selectbox("Sentimen", options=sentiment_list)
+
+        f_col4, f_col5 = st.columns([2, 1])
+        with f_col4:
+            max_likes_available = int(df_result["likes_count"].max()) if ("likes_count" in df_result.columns and len(df_result) > 0) else 100
+            min_likes_filter = st.slider("Minimal Likes", min_value=0, max_value=max(10, max_likes_available), value=0)
+        with f_col5:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            hide_spam = st.checkbox("Sembunyikan Spam", value=False)
 
         filtered_df = df_result.copy()
         if selected_plat != "Semua" and "platform" in filtered_df.columns:
             filtered_df = filtered_df[filtered_df["platform"] == selected_plat]
+        if selected_sent != "Semua" and "sentiment" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["sentiment"] == selected_sent]
+        if min_likes_filter > 0 and "likes_count" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["likes_count"] >= min_likes_filter]
+        if hide_spam and "is_spam" in filtered_df.columns:
+            filtered_df = filtered_df[~filtered_df["is_spam"]]
         if search_query:
             q = search_query.lower()
             mask = filtered_df["content"].astype(str).str.lower().str.contains(q) | \
