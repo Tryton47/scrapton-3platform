@@ -76,6 +76,8 @@ class CommentScraper:
                                 username = user.get("unique_id") or user.get("uniqueId") or "unknown"
                                 text = c.get("text") or ""
                                 likes = c.get("digg_count") or 0
+                                reply_to = str(c.get("reply_id") or c.get("reply_to_reply_id") or "")
+                                reply_to_id = reply_to if (reply_to and reply_to != "0") else None
                                 comments.append(SocialComment(
                                     id=cid,
                                     platform=Platform.TIKTOK,
@@ -85,6 +87,8 @@ class CommentScraper:
                                     content=clean_text(text),
                                     likes_count=likes,
                                     reply_count=c.get("reply_comment_total", 0),
+                                    reply_to_id=reply_to_id,
+                                    language=c.get("text_language"),
                                 ))
                     except Exception:
                         pass
@@ -180,6 +184,7 @@ class CommentScraper:
                                 author = node.get("owner", {}).get("username", "unknown")
                                 text = node.get("text", "")
                                 likes = node.get("edge_liked_by", {}).get("count", 0)
+                                child_count = node.get("edge_threaded_comments", {}).get("count", 0)
                                 comments.append(SocialComment(
                                     id=cid,
                                     platform=Platform.INSTAGRAM,
@@ -187,6 +192,7 @@ class CommentScraper:
                                     author_username=author,
                                     content=clean_text(text),
                                     likes_count=likes,
+                                    reply_count=child_count,
                                 ))
                     except Exception:
                         pass
